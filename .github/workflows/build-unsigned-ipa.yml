@@ -18,7 +18,7 @@ permissions:
 jobs:
   build:
     name: iOS unsigned .ipa
-    # macos-26 在部分账号上排不到机器，用 macos-latest 更稳（SDK 版本由下面的脚本自适应）
+    # macos-26 在免费/个人账号上常常分不到机器（会一直 queued），macos-latest 有稳定容量
     runs-on: macos-latest
     timeout-minutes: 45
 
@@ -30,38 +30,57 @@ jobs:
         run: |
           sw_vers
           uname -m
-          echo "--- Xcode 安装情况 ---"
-          ls -d /Applications/Xcode*.app 2>/dev/null || echo "no Xcode"
+          xcode-select -p
 
       - name: Select newest Xcode (prefer iOS 27 SDK)
         id: pick-xcode
+        shell: bash
         run: |
           set -euo pipefail
-          BEST=""; BEST_V=0; WANT27=""
+          best_app=""; best_major=0; best_ver="0"
+          pick=""; pick_ver=""
+
           for app in /Applications/Xcode*.app; do
-            [ -d "$app" ] || continue
-            sdkdir="$app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs"
-            [ -d "$sdkdir" ] || continue
-            v=$(ls "$sdkdir" | sed -n 's/^iPhoneOS\([0-9][0-9]*\)\.sdk$/\1/p' | sort -n | tail -1)
-            v=${v:-0}
-            echo "$app -> iOS SDK $v"
-            if [ "$v" -ge 27 ] && [ -z "$WANT27" ]; then WANT27="$app"; fi
-            if [ "$v" -gt "$BEST_V" ]; then BEST_V=$v; BEST=$app; fi
+            dev="$app/Contents/Developer"
+            [ -d "$dev/Platforms/iPhoneOS.platform" ] || continue
+            ver=$(DEVELOPER_DIR="$dev" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || echo "0")
+            major="${ver%%.*}"
+            [ -n "$major" ] || major=0
+            echo "$app -> iOS SDK $ver"
+            if [ "$major" -ge 27 ] && [ -z "$pick" ]; then
+              pick="$app"; pick_ver="$ver"
+            fi
+            if [ "$major" -gt "$best_major" ]; then
+              best_major="$major"; best_app="$app"; best_ver="$ver"
+            fi
           done
-          if [ -n "$WANT27" ]; then
-            PICK="$WANT27"
-            echo "::notice::找到 iOS 27 SDK，使用 $PICK"
+
+          if [ -z "$pick" ]; then
+            pick="$best_app"; pick_ver="$best_ver"
+            echo "::warning::runner 上没有 iOS 27 SDK（最高 ${best_ver}），将临时下调部署目标以便产出 IPA"
           else
-            PICK="$BEST"
-            echo "::warning::runner 上没有 iOS 27 SDK（最高 iOS $BEST_V），将临时下调部署目标以便产出 IPA"
+            echo "::notice::找到 iOS 27 SDK：${pick_ver}"
           fi
-          echo "DEVELOPER_DIR=$PICK/Contents/Developer" >> "$GITHUB_ENV"
-          echo "sdk_major=$BEST_V" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$pick" ]; then
+            echo "::error::没有找到任何带 iPhoneOS SDK 的 Xcode"
+            exit 1
+          fi
+
+          echo "选中 ${pick}（iOS SDK ${pick_ver}）"
+          {
+            echo "DEVELOPER_DIR=${pick}/Contents/Developer"
+            echo "PICKED_XCODE=${pick}"
+            echo "SDK_VERSION=${pick_ver}"
+            echo "SDK_MAJOR=${best_major}"
+          } >> "$GITHUB_ENV"
+          echo "sdk_major=${best_major}" >> "$GITHUB_OUTPUT"
+          echo "sdk_version=${pick_ver}" >> "$GITHUB_OUTPUT"
 
       - name: Verify toolchain
         run: |
           xcodebuild -version
-          xcodebuild -showsdks | sed -n '1,40p'
+          xcodebuild -showsdks
           swift --version
 
       - name: Install XcodeGen
@@ -74,19 +93,19 @@ jobs:
 
       - name: Generate Xcode project
         run: |
+          set -euo pipefail
           xcodegen generate --spec project.yml
           ls -la Pogent.xcodeproj
+          xcodebuild -project Pogent.xcodeproj -list
 
       - name: Build (no code signing)
         id: build
         run: |
           set -o pipefail
-          SDK_MAJOR="${{ steps.pick-xcode.outputs.sdk_major }}"
           OVERRIDE=""
-          # 没有 iOS 27 SDK 时，把部署目标压到当前 SDK 大版本，避免 "SDK does not support" 直接失败
-          if [ "$SDK_MAJOR" -lt 27 ]; then
-            OVERRIDE="IPHONEOS_DEPLOYMENT_TARGET=$SDK_MAJOR.0"
-            echo "::warning::降级构建：$OVERRIDE"
+          if [ "${SDK_MAJOR:-0}" -lt 27 ]; then
+            OVERRIDE="IPHONEOS_DEPLOYMENT_TARGET=${SDK_MAJOR}.0"
+            echo "::warning::降级构建：${OVERRIDE}（产物不是 iOS 27 包）"
           fi
           set -x
           xcodebuild \
@@ -107,7 +126,7 @@ jobs:
             ENABLE_BITCODE=NO \
             DEBUG_INFORMATION_FORMAT=dwarf \
             $OVERRIDE \
-            build 2>&1 | tee build.log | tail -n 250
+            build 2>&1 | tee build.log | tail -n 300
 
       - name: Package unsigned IPA
         run: |
@@ -118,20 +137,22 @@ jobs:
           rm -rf Payload Pogent-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP" Payload/
-          # 未签名包：清掉可能残留的签名描述文件，签名由用户后续自行完成
           rm -rf Payload/*.app/_CodeSignature Payload/*.app/embedded.mobileprovision || true
           zip -qry Pogent-unsigned.ipa Payload
           ls -lh Pogent-unsigned.ipa
           unzip -l Pogent-unsigned.ipa | head -20
-          echo "### ✅ 未签名 IPA 已生成" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 项 | 值 |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 文件 | \`Pogent-unsigned.ipa\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 大小 | $(du -h Pogent-unsigned.ipa | cut -f1) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| iOS SDK | $(xcodebuild -showsdks | grep -m1 iphoneos || true) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Xcode | $(xcodebuild -version | tr '\n' ' ') |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| 签名 | 无（需自行用证书/AltStore/Sideloadly 签名） |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### 未签名 IPA 已生成"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 文件 | Pogent-unsigned.ipa |"
+            echo "| 大小 | $(du -h Pogent-unsigned.ipa | cut -f1) |"
+            echo "| Xcode | $(xcodebuild -version | tr '\n' ' ') |"
+            echo "| iOS SDK | ${SDK_VERSION} |"
+            echo "| 最低系统 | $(plutil -extract MinimumOSVersion raw "Payload/$(basename "$APP")/Info.plist" 2>/dev/null || echo unknown) |"
+            echo "| 签名 | 无 |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4

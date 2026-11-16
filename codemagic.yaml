@@ -44,28 +44,31 @@ workflows:
       - name: 选择 Xcode（优先 iOS 27 SDK）
         script: |
           set -e
-          BEST=""; BEST_V=0; WANT27=""
+          best_app=""; best_major=0; best_ver="0"
+          pick=""; pick_ver=""
           for app in /Applications/Xcode*.app; do
-            [ -d "$app" ] || continue
-            sdkdir="$app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs"
-            [ -d "$sdkdir" ] || continue
-            v=$(ls "$sdkdir" | sed -n 's/^iPhoneOS\([0-9][0-9]*\)\.sdk$/\1/p' | sort -n | tail -1)
-            v=${v:-0}
-            echo "$app -> iOS SDK $v"
-            if [ "$v" -ge 27 ] && [ -z "$WANT27" ]; then WANT27="$app"; fi
-            if [ "$v" -gt "$BEST_V" ]; then BEST_V=$v; BEST="$app"; fi
+            dev="$app/Contents/Developer"
+            [ -d "$dev/Platforms/iPhoneOS.platform" ] || continue
+            ver=$(DEVELOPER_DIR="$dev" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || echo "0")
+            major="${ver%%.*}"
+            [ -n "$major" ] || major=0
+            echo "$app -> iOS SDK $ver"
+            if [ "$major" -ge 27 ] && [ -z "$pick" ]; then pick="$app"; pick_ver="$ver"; fi
+            if [ "$major" -gt "$best_major" ]; then best_major="$major"; best_app="$app"; best_ver="$ver"; fi
           done
-          if [ -n "$WANT27" ]; then
-            PICK="$WANT27"
-            echo "使用带 iOS 27 SDK 的 Xcode：$PICK"
-            echo "SDK_MAJOR=27" >> $CM_ENV
+
+          if [ -z "$pick" ]; then
+            pick="$best_app"; pick_ver="$best_ver"
+            echo "警告：这台机器没有 iOS 27 SDK（最高 ${best_ver}），将把部署目标临时压到 ${best_major}.0 以产出可运行包"
           else
-            PICK="$BEST"
-            echo "⚠️ 这台机器没有 iOS 27 SDK（最高 iOS $BEST_V），将把部署目标临时压到 $BEST_V.0 以产出可运行包"
-            echo "SDK_MAJOR=$BEST_V" >> $CM_ENV
+            echo "使用带 iOS 27 SDK 的 Xcode：${pick}"
           fi
-          echo "DEVELOPER_DIR=$PICK/Contents/Developer" >> $CM_ENV
-          echo "PICKED_XCODE=$PICK" >> $CM_ENV
+          [ -n "$pick" ] || { echo "没有找到任何带 iPhoneOS SDK 的 Xcode"; exit 1; }
+
+          echo "SDK_MAJOR=${best_major}" >> $CM_ENV
+          echo "SDK_VERSION=${pick_ver}" >> $CM_ENV
+          echo "DEVELOPER_DIR=${pick}/Contents/Developer" >> $CM_ENV
+          echo "PICKED_XCODE=${pick}" >> $CM_ENV
 
       - name: 校验工具链
         script: |
