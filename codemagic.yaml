@@ -105,7 +105,6 @@ workflows:
             -scheme "$XCODE_SCHEME" \
             -configuration Release \
             -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             -skipPackagePluginValidation \
             -skipMacroValidation \

@@ -37,45 +37,47 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          best_app=""; best_major=0; best_ver="0"
-          pick=""; pick_ver=""
-
+          tmp=$(mktemp)
           for app in /Applications/Xcode*.app; do
             dev="$app/Contents/Developer"
             [ -d "$dev/Platforms/iPhoneOS.platform" ] || continue
             ver=$(DEVELOPER_DIR="$dev" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || echo "0")
-            major="${ver%%.*}"
-            [ -n "$major" ] || major=0
+            [ -n "$ver" ] && [ "$ver" != "0" ] || continue
+            echo "$ver|$app" >> "$tmp"
             echo "$app -> iOS SDK $ver"
-            if [ "$major" -ge 27 ] && [ -z "$pick" ]; then
-              pick="$app"; pick_ver="$ver"
-            fi
-            if [ "$major" -gt "$best_major" ]; then
-              best_major="$major"; best_app="$app"; best_ver="$ver"
-            fi
           done
 
-          if [ -z "$pick" ]; then
-            pick="$best_app"; pick_ver="$best_ver"
-            echo "::warning::runner 上没有 iOS 27 SDK（最高 ${best_ver}），将临时下调部署目标以便产出 IPA"
-          else
-            echo "::notice::找到 iOS 27 SDK：${pick_ver}"
-          fi
-
-          if [ -z "$pick" ]; then
+          if [ ! -s "$tmp" ]; then
             echo "::error::没有找到任何带 iPhoneOS SDK 的 Xcode"
             exit 1
           fi
 
-          echo "选中 ${pick}（iOS SDK ${pick_ver}）"
+          # 按语义版本排序，取最高的一行
+          best_line=$(sort -t'|' -k1,1V "$tmp" | tail -1)
+          best_ver="${best_line%%|*}"
+          best_app="${best_line#*|}"
+          major="${best_ver%%.*}"
+
+          v27_line=$(sort -t'|' -k1,1V "$tmp" | awk -F'|' '$1+0 >= 27' | tail -1 || true)
+          if [ -n "$v27_line" ]; then
+            best_ver="${v27_line%%|*}"
+            best_app="${v27_line#*|}"
+            major="${best_ver%%.*}"
+            echo "::notice::找到 iOS 27 SDK：${best_ver}"
+          else
+            echo "::warning::runner 上没有 iOS 27 SDK（最高 ${best_ver}），将临时下调部署目标以便产出 IPA"
+          fi
+
+          echo "选中 ${best_app}（iOS SDK ${best_ver}）"
           {
-            echo "DEVELOPER_DIR=${pick}/Contents/Developer"
-            echo "PICKED_XCODE=${pick}"
-            echo "SDK_VERSION=${pick_ver}"
-            echo "SDK_MAJOR=${best_major}"
+            echo "DEVELOPER_DIR=${best_app}/Contents/Developer"
+            echo "PICKED_XCODE=${best_app}"
+            echo "SDK_VERSION=${best_ver}"
+            echo "SDK_MAJOR=${major}"
           } >> "$GITHUB_ENV"
-          echo "sdk_major=${best_major}" >> "$GITHUB_OUTPUT"
-          echo "sdk_version=${pick_ver}" >> "$GITHUB_OUTPUT"
+          echo "sdk_major=${major}" >> "$GITHUB_OUTPUT"
+          echo "sdk_version=${best_ver}" >> "$GITHUB_OUTPUT"
+          rm -f "$tmp"
 
       - name: Verify toolchain
         run: |
@@ -113,7 +115,6 @@ jobs:
             -scheme Pogent \
             -configuration Release \
             -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             -skipPackagePluginValidation \
             -skipMacroValidation \
