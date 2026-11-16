@@ -1,0 +1,119 @@
+name: Pogent
+options:
+  bundleIdPrefix: bot.pogent
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+  xcodeVersion: "27.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    IPHONEOS_DEPLOYMENT_TARGET: "27.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    # pogent 只支持 iOS 27：不生成任何 lower-than-target 的回退代码
+    ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
+
+targets:
+  Pogent:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes:
+          - "Widgets/**"
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: bot.pogent.app
+        PRODUCT_NAME: pogent
+        INFOPLIST_KEY_CFBundleDisplayName: pogent
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        SUPPORTS_MACCATALYST: NO
+        SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleDisplayName: pogent
+        UILaunchScreen: {}
+        NSCalendarsFullAccessUsageDescription: pogent 需要读写日历，才能替你建日程、查空闲时间。
+        NSRemindersFullAccessUsageDescription: pogent 需要读写提醒事项，才能替你建提醒、勾选完成。
+        NSContactsUsageDescription: pogent 需要读取联系人，才能替你找人、发消息。
+        NSHealthShareUsageDescription: pogent 需要读取健康数据，才能回答你的运动、睡眠和心率问题。
+        NSHealthUpdateUsageDescription: pogent 需要写入健康数据，才能记录你的训练和体重。
+        NSPhotoLibraryUsageDescription: pogent 需要访问照片，才能替你找图、看图、整理相册。
+        NSPhotoLibraryAddUsageDescription: pogent 需要保存图片到相册。
+        NSMicrophoneUsageDescription: pogent 需要麦克风，才能语音输入与语音通话。
+        NSSpeechRecognitionUsageDescription: pogent 需要语音识别，才能把你的话转成文字。
+        NSLocationWhenInUseUsageDescription: pogent 需要位置，才能算路线、找附近的地方。
+        NSHomeKitUsageDescription: pogent 需要访问家庭配件，才能替你控制灯和空调。
+        NSAppleMusicUsageDescription: pogent 需要访问 Apple Music，才能替你放歌。
+        NSFaceIDUsageDescription: pogent 用 Face ID 确认高风险操作。
+        NSLocalNetworkUsageDescription: pogent 只在你看得到的时候连接局域网里的远程会话。
+        NSBonjourServices:
+          - _pogent._tcp
+        UIBackgroundModes:
+          - audio
+          - fetch
+        BGTaskSchedulerPermittedIdentifiers:
+          - bot.pogent.refresh
+          - bot.pogent.bot-tick
+        CFBundleURLTypes:
+          - CFBundleURLName: bot.pogent.app
+            CFBundleURLSchemes:
+              - pogent
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+    entitlements:
+      path: Support/Pogent.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+        com.apple.developer.homekit: true
+        aps-environment: development
+        com.apple.security.application-groups:
+          - group.bot.pogent
+    dependencies:
+      - target: PogentWidgets
+        embed: true
+
+  PogentWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/Widgets
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: bot.pogent.app.widgets
+        INFOPLIST_KEY_CFBundleDisplayName: pogent
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: Support/Widgets-Info.plist
+      properties:
+        CFBundleDisplayName: pogent
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+schemes:
+  Pogent:
+    build:
+      targets:
+        Pogent: all
+        PogentWidgets: all
+    run:
+      config: Debug
+    test:
+      config: Debug
