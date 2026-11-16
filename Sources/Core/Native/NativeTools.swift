@@ -2,6 +2,13 @@ import Foundation
 @preconcurrency import EventKit
 import Contacts
 
+/// EventKit 的 `EKReminder` 不是 Sendable，而 `fetchReminders` 的回调在后台队列执行。
+/// 这里用一个显式的盒子把结果带回来；使用者必须保证不在多个任务里同时改同一批对象。
+private final class ReminderBatch: @unchecked Sendable {
+    let items: [EKReminder]
+    init(_ items: [EKReminder]) { self.items = items }
+}
+
 // MARK: - 权限
 
 enum CapabilityPermission {
@@ -214,9 +221,10 @@ final class ReminderTool: AgentTool {
         case "list":
             let calendar = store.defaultCalendarForNewReminders()
             let predicate = store.predicateForReminders(in: calendar.map { [$0] })
-            let reminders: [EKReminder] = await withCheckedContinuation { continuation in
-                store.fetchReminders(matching: predicate) { continuation.resume(returning: $0 ?? []) }
+            let batch: ReminderBatch = await withCheckedContinuation { continuation in
+                store.fetchReminders(matching: predicate) { continuation.resume(returning: ReminderBatch($0 ?? [])) }
             }
+            let reminders = batch.items
             let pending = reminders.filter { !$0.isCompleted }
             let lines = pending.prefix(50).map { reminder -> String in
                 let due = reminder.dueDateComponents.flatMap { Calendar.current.date(from: $0) }
@@ -227,9 +235,10 @@ final class ReminderTool: AgentTool {
         case "complete":
             let query = arguments["query"]?.stringValue ?? arguments["title"]?.stringValue ?? ""
             let predicate = store.predicateForReminders(in: nil)
-            let all: [EKReminder] = await withCheckedContinuation { continuation in
-                store.fetchReminders(matching: predicate) { continuation.resume(returning: $0 ?? []) }
+            let allBatch: ReminderBatch = await withCheckedContinuation { continuation in
+                store.fetchReminders(matching: predicate) { continuation.resume(returning: ReminderBatch($0 ?? [])) }
             }
+            let all = allBatch.items
             guard let match = all.first(where: { !$0.isCompleted && ($0.title ?? "").contains(query) }) else {
                 return .failed("没有找到包含「\(query)」的未完成提醒")
             }
