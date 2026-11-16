@@ -210,7 +210,7 @@ final class DeviceControlService {
         lastDiff = screenDiff
 
         if finish { try? await restoreOrigin() }
-        return (snapshot, diff)
+        return (snapshot, screenDiff)
     }
 
     func restoreOrigin() async throws {
