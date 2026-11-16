@@ -14,6 +14,8 @@ final class Conversation {
     var botID: String?
     var remoteHost: String?
     var lastText: String
+    var isArchived: Bool = false
+    var isMuted: Bool = false
 
     init(
         id: String = UUID().uuidString,
@@ -249,6 +251,136 @@ final class PluginRecord {
 
 // MARK: - 容器
 
+// MARK: - 长期记忆 / 连接器 / 能力开关
+
+/// 跨会话长期记忆。模型可以主动写入，也可以在设置里手动管理。
+@Model
+final class MemoryRecord {
+    @Attribute(.unique) var id: String
+    var text: String
+    var kindRaw: String
+    var createdAt: Date
+    var lastUsedAt: Date
+    var uses: Int
+
+    init(id: String = UUID().uuidString, text: String, kind: MemoryKind = .fact) {
+        self.id = id
+        self.text = text
+        self.kindRaw = kind.rawValue
+        self.createdAt = Date()
+        self.lastUsedAt = Date()
+        self.uses = 0
+    }
+
+    var kind: MemoryKind {
+        get { MemoryKind(rawValue: kindRaw) ?? .fact }
+        set { kindRaw = newValue.rawValue }
+    }
+}
+
+enum MemoryKind: String, Codable, CaseIterable, Sendable {
+    case fact       // 事实：我住在杭州
+    case preference // 偏好：回答短一点
+    case contact    // 人物：老婆叫小美
+    case routine    // 习惯：每周一早上做周报
+    case secret     // 只在本机保存的敏感备注
+
+    var title: String {
+        switch self {
+        case .fact: "事实"
+        case .preference: "偏好"
+        case .contact: "人物"
+        case .routine: "习惯"
+        case .secret: "私密"
+        }
+    }
+}
+
+/// 外部服务连接器。凭证存在 Keychain，表里只放元信息。
+@Model
+final class ConnectorRecord {
+    @Attribute(.unique) var id: String
+    var kindRaw: String
+    var displayName: String
+    var account: String
+    var isEnabled: Bool
+    var createdAt: Date
+    var lastUsedAt: Date?
+    var configJSON: String
+
+    init(
+        id: String = UUID().uuidString,
+        kind: ConnectorKind,
+        displayName: String,
+        account: String = "",
+        configJSON: String = "{}"
+    ) {
+        self.id = id
+        self.kindRaw = kind.rawValue
+        self.displayName = displayName
+        self.account = account
+        self.isEnabled = true
+        self.createdAt = Date()
+        self.configJSON = configJSON
+    }
+
+    var kind: ConnectorKind {
+        get { ConnectorKind(rawValue: kindRaw) ?? .github }
+        set { kindRaw = newValue.rawValue }
+    }
+}
+
+enum ConnectorKind: String, Codable, CaseIterable, Sendable {
+    case github, notion, webhook, rss, openaiCompatible
+
+    var title: String {
+        switch self {
+        case .github: "GitHub"
+        case .notion: "Notion"
+        case .webhook: "Webhook"
+        case .rss: "RSS"
+        case .openaiCompatible: "自定义模型"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .github: "chevron.left.forwardslash.chevron.right"
+        case .notion: "doc.text"
+        case .webhook: "arrow.up.right.circle"
+        case .rss: "dot.radiowaves.left.and.right"
+        case .openaiCompatible: "cpu"
+        }
+    }
+
+    /// 需要用户填的字段标题。
+    var credentialLabel: String {
+        switch self {
+        case .github: "Personal Access Token"
+        case .notion: "Integration Token"
+        case .webhook: "签名密钥（可选）"
+        case .rss: "无"
+        case .openaiCompatible: "API Key"
+        }
+    }
+}
+
+/// 本机能力的一次性开关状态。用户关掉后，工具直接拒绝。
+@Model
+final class CapabilityRecord {
+    @Attribute(.unique) var id: String
+    var isEnabled: Bool
+    var grantedAt: Date?
+    var lastUsedAt: Date?
+
+    init(id: String, isEnabled: Bool = false) {
+        self.id = id
+        self.isEnabled = isEnabled
+    }
+}
+
+// MARK: - 容器
+
 enum PogentStore {
     static let schema = Schema([
         Conversation.self,
@@ -257,7 +389,10 @@ enum PogentStore {
         StepRecord.self,
         BotProfile.self,
         SkillRecord.self,
-        PluginRecord.self
+        PluginRecord.self,
+        MemoryRecord.self,
+        ConnectorRecord.self,
+        CapabilityRecord.self
     ])
 
     static func container(inMemory: Bool = false) -> ModelContainer {

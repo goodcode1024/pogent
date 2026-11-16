@@ -176,6 +176,7 @@ struct PogentWidgetsBundle: WidgetBundle {
     var body: some Widget {
         PogentStatusWidget()
         PogentLiveActivity()
+        PogentControlWidget()
     }
 }
 

@@ -20,7 +20,7 @@ struct RootView: View {
 }
 
 enum MainTab: Hashable {
-    case chat, control, workbench, bots, settings
+    case chat, capabilities, control, workbench, bots, settings
 }
 
 struct MainTabView: View {
@@ -30,6 +30,9 @@ struct MainTabView: View {
         TabView(selection: $selection) {
             Tab("对话", systemImage: "bubble.left.and.bubble.right.fill", value: MainTab.chat) {
                 ChatView()
+            }
+            Tab("能力", systemImage: "square.grid.2x2.fill", value: MainTab.capabilities) {
+                CapabilityView()
             }
             Tab("操控", systemImage: "rectangle.on.rectangle.angled", value: MainTab.control) {
                 ControlView()
@@ -44,5 +47,6 @@ struct MainTabView: View {
                 SettingsView()
             }
         }
+        .tabViewStyle(.sidebarAdaptable)
     }
 }

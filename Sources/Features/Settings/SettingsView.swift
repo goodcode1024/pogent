@@ -5,18 +5,17 @@ struct SettingsView: View {
     @Environment(AppEnvironment.self) private var app
     @Environment(\.modelContext) private var context
 
-    @AppStorage("cap.calendar") private var calendarEnabled = true
-    @AppStorage("cap.reminders") private var remindersEnabled = true
-    @AppStorage("cap.contacts") private var contactsEnabled = true
-    @AppStorage("cap.health") private var healthEnabled = false
-    @AppStorage("cap.photos") private var photosEnabled = true
-    @AppStorage("cap.home") private var homeEnabled = false
-    @AppStorage("cap.clipboard") private var clipboardEnabled = false
-    @AppStorage("cap.background") private var backgroundEnabled = true
+    @AppStorage("pogent.speakReplies") private var speakReplies = true
+    @AppStorage("pogent.speechRate") private var speechRate = 0.5
+    @AppStorage("pogent.voice") private var voiceID = ""
 
     @State private var apiKey = ""
     @State private var showAudit = false
     @State private var showRemote = false
+    @State private var showCapabilities = false
+    @State private var showLibrary = false
+    @State private var showFiles = false
+    @State private var showConnectors = false
 
     var body: some View {
         ZStack {
@@ -36,9 +35,17 @@ struct SettingsView: View {
                 .padding(.bottom, 28)
             }
         }
-        .task { apiKey = KeychainStore.apiKey(for: app.modelConfig.kind.rawValue) ?? "" }
+        .task {
+            apiKey = KeychainStore.apiKey(for: app.modelConfig.kind.rawValue) ?? ""
+            app.synthesizer.voiceIdentifier = voiceID.isEmpty ? nil : voiceID
+            app.synthesizer.rate = Float(speechRate)
+        }
         .sheet(isPresented: $showAudit) { AuditSheet() }
         .sheet(isPresented: $showRemote) { RemoteSheet() }
+        .sheet(isPresented: $showCapabilities) { CapabilityView() }
+        .sheet(isPresented: $showLibrary) { NavigationStack { LibraryView() } }
+        .sheet(isPresented: $showFiles) { NavigationStack { FilesView() } }
+        .sheet(isPresented: $showConnectors) { NavigationStack { ConnectorsView() } }
     }
 
     private var header: some View {
@@ -170,23 +177,68 @@ struct SettingsView: View {
 
     private var capabilitySection: some View {
         section("本机能力") {
-            capRow("日历", "calendar", $calendarEnabled)
-            capRow("提醒事项", "checklist", $remindersEnabled)
-            capRow("通讯录", "person.crop.circle", $contactsEnabled)
-            capRow("健康", "heart.fill", $healthEnabled)
-            capRow("照片", "photo.on.rectangle", $photosEnabled)
-            capRow("家庭", "house.fill", $homeEnabled)
-            capRow("剪贴板", "doc.on.clipboard", $clipboardEnabled)
-            capRow("后台继续跑", "bolt.fill", $backgroundEnabled)
+            Button {
+                showCapabilities = true
+            } label: {
+                HStack(spacing: 8) {
+                    Label("能力中心", systemImage: "square.grid.2x2")
+                        .font(.system(size: 12))
+                    Spacer()
+                    Text("\(enabledCapabilityCount)/\(Capability.allCases.count)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .buttonStyle(.plain)
+
+            Text("打开开关会同时申请系统权限。关掉之后对应工具直接拒绝执行。")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider().overlay(Color.white.opacity(0.06))
+
+            Toggle(isOn: $speakReplies) {
+                Label("回复自动朗读", systemImage: "speaker.wave.2")
+                    .font(.system(size: 12))
+            }
+            .tint(PogentTheme.accent)
+
+            if speakReplies {
+                HStack {
+                    Text("语速").font(.system(size: 12))
+                    Slider(value: $speechRate, in: 0.35...0.65)
+                    .tint(PogentTheme.accent)
+                    .onChange(of: speechRate) { _, value in
+                        app.synthesizer.rate = Float(value)
+                    }
+                }
+
+                Picker(selection: Binding(
+                    get: { voiceID },
+                    set: { value in
+                        voiceID = value
+                        app.synthesizer.voiceIdentifier = value.isEmpty ? nil : value
+                    }
+                )) {
+                    Text("系统默认").tag("")
+                    ForEach(SpeechSynthesizer.availableVoices, id: \.identifier) { voice in
+                        Text("\(voice.name) · \(voice.language)").tag(voice.identifier)
+                    }
+                } label: {
+                    Label("音色", systemImage: "waveform")
+                        .font(.system(size: 12))
+                }
+                .font(.system(size: 12))
+            }
         }
     }
 
-    private func capRow(_ title: String, _ icon: String, _ binding: Binding<Bool>) -> some View {
-        Toggle(isOn: binding) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 12))
-        }
-        .tint(PogentTheme.accent)
+    private var enabledCapabilityCount: Int {
+        Capability.allCases.filter { app.capabilities.isEnabled($0) }.count
     }
 
     // MARK: 操控
@@ -242,6 +294,32 @@ struct SettingsView: View {
 
     private var dataSection: some View {
         section("数据") {
+            Button {
+                showLibrary = true
+            } label: {
+                Label("技能、审计、记忆", systemImage: "square.stack.3d.up")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showFiles = true
+            } label: {
+                Label("工作区文件", systemImage: "folder")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                showConnectors = true
+            } label: {
+                Label("连接器", systemImage: "link")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+
+            Divider().overlay(Color.white.opacity(0.06))
+
             HStack {
                 Text("审计记录").font(.system(size: 12))
                 Spacer()
@@ -266,6 +344,14 @@ struct SettingsView: View {
         }
     }
 
+    private var currentModelLabel: String {
+        if app.modelConfig.kind == .openAICompatible {
+            let key = KeychainStore.apiKey(for: app.modelConfig.kind.rawValue) ?? ""
+            return key.isEmpty ? "离线引擎" : app.modelConfig.model
+        }
+        return "端侧模型"
+    }
+
     // MARK: 关于
 
     private var aboutSection: some View {
@@ -284,6 +370,11 @@ struct SettingsView: View {
                 Text("工具").font(.system(size: 12))
                 Spacer()
                 Text("\(app.registry.count) 个").font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+            }
+            HStack {
+                Text("当前模型").font(.system(size: 12))
+                Spacer()
+                Text(currentModelLabel).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 4) {

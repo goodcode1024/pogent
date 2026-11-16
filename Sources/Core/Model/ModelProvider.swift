@@ -277,11 +277,36 @@ final class OpenAICompatibleProvider: ModelProvider, @unchecked Sendable {
 final class ModelRouter {
     private let onDevice = OnDeviceModelProvider()
 
-    func provider(for request: ModelRequest, config: ModelConfig) -> any ModelProvider {
-        if config.kind == .onDevice || shouldUseOnDevice(request) {
-            if onDevice.isAvailable { return onDevice }
+    /// 这一轮到底能不能真的调到模型。
+    enum Resolution: Sendable {
+        case remote       // 用户自己的 OpenAI 兼容接口
+        case onDevice     // Apple 端侧模型
+        case offline      // 都不可用，交给本地规则引擎
+    }
+
+    func resolution(for config: ModelConfig) -> Resolution {
+        if config.kind == .openAICompatible {
+            let key = KeychainStore.apiKey(for: config.kind.rawValue) ?? ""
+            if !key.isEmpty { return .remote }
         }
-        return OpenAICompatibleProvider(config: config, apiKey: KeychainStore.apiKey(for: config.kind.rawValue) ?? "")
+        if onDevice.isAvailable { return .onDevice }
+        return .offline
+    }
+
+    func provider(for request: ModelRequest, config: ModelConfig) -> any ModelProvider {
+        switch resolution(for: config) {
+        case .remote:
+            return OpenAICompatibleProvider(
+                config: config,
+                apiKey: KeychainStore.apiKey(for: config.kind.rawValue) ?? ""
+            )
+        case .onDevice:
+            return onDevice
+        case .offline:
+            // 上层会拦下来走 OfflineAssistant；真的走到这里说明判断有偏差，
+            // 返回端侧 provider 让它抛一个明确的错误，而不是发一个空 Key 的请求。
+            return onDevice
+        }
     }
 
     private func shouldUseOnDevice(_ request: ModelRequest) -> Bool {

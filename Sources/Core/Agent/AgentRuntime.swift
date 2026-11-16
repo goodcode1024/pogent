@@ -22,6 +22,8 @@ final class AgentRuntime {
     let shell: ShellSession
     private let router = ModelRouter()
     private let activity = TaskActivityManager()
+    let memory: MemoryStore
+    private let offline: OfflineAssistant
 
     var maxSteps = 40
     /// 这些工具自己会发起审批，运行时不再重复问一遍。
@@ -33,6 +35,7 @@ final class AgentRuntime {
         ledger: AuditLedger,
         control: DeviceControlService,
         shell: ShellSession,
+        memory: MemoryStore,
         modelConfig: ModelConfig
     ) {
         self.registry = registry
@@ -40,7 +43,9 @@ final class AgentRuntime {
         self.ledger = ledger
         self.control = control
         self.shell = shell
+        self.memory = memory
         self.modelConfig = modelConfig
+        self.offline = OfflineAssistant(workspace: shell.workspace, memory: memory)
     }
 
     // MARK: - 入口
@@ -80,6 +85,16 @@ final class AgentRuntime {
         var messages = buildMessages(conversation: conversation, context: context, latest: text)
         let system = systemPrompt()
 
+        if router.resolution(for: modelConfig) == .offline {
+            await runOffline(text, run: run, conversation: conversation, context: context)
+            run.state = .done
+            run.endedAt = Date()
+            try? context.save()
+            await activity.finish(summary: "完成")
+            currentRun = nil
+            return
+        }
+
         do {
             try await loop(run: run, conversation: conversation, context: context, messages: messages, system: system)
             run.state = .done
@@ -105,6 +120,71 @@ final class AgentRuntime {
         control.stop()
         approvals.resolveAll(expired: false)
         Task { await activity.stop() }
+    }
+
+    // MARK: - 离线
+
+    /// 没有可用模型时，用本地规则引擎真的把事办了，而不是只回一句“请配置 API”。
+    private func runOffline(
+        _ input: String,
+        run: RunRecord,
+        conversation: Conversation,
+        context: ModelContext
+    ) async {
+        let plan = offline.plan(input)
+        ledger.append(.init(kind: .system, title: "离线引擎", detail: String(input.prefix(120)), risk: .safe, runID: run.id))
+
+        guard !plan.calls.isEmpty else {
+            append(role: .assistant, text: plan.reply, conversation: conversation, context: context, runID: run.id)
+            return
+        }
+
+        var lines: [String] = []
+        for call in plan.calls {
+            let outcome = await execute(call, run: run, conversation: conversation)
+            if !outcome.summary.isEmpty { lines.append(outcome.summary) }
+        }
+        let body = [plan.reply, lines.joined(separator: "\n")].filter { !$0.isEmpty }.joined(separator: "\n\n")
+        append(role: .assistant, text: body, conversation: conversation, context: context, runID: run.id)
+    }
+
+    /// 计划模式：先只出计划，不碰任何工具。
+    func requestPlan(_ input: String, conversation: Conversation, context: ModelContext) async -> String {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "" }
+        guard router.resolution(for: modelConfig) != .offline else {
+            return "离线状态下没有规划能力，但这件事我可以直接试：直接发「\(text)」，我会用本机工具执行。"
+        }
+
+        let messages = buildMessages(conversation: conversation, context: context, latest: text)
+        let planSystem = systemPrompt() + """
+
+
+        ## 本轮是计划模式
+        先不要动手，也不要调用任何工具。把任务拆成可执行步骤，每步写清楚：
+        1. 做什么
+        2. 用哪个工具
+        3. 预期产出
+        最后用一句「确认后开始执行」结尾。只输出计划本身。
+        """
+
+        let request = ModelRequest(
+            system: planSystem,
+            messages: messages,
+            tools: [],
+            temperature: 0.2,
+            maxTokens: 1200
+        )
+        let provider = router.provider(for: request, config: modelConfig)
+        var answer = ""
+        do {
+            for try await delta in provider.stream(request) {
+                if case .text(let chunk) = delta { answer += chunk }
+            }
+        } catch {
+            return "规划失败：\(error.localizedDescription)"
+        }
+        return answer.isEmpty ? "没能生成计划，可以直接让我做。" : answer
     }
 
     // MARK: - 循环
@@ -335,6 +415,7 @@ final class AgentRuntime {
         - 失败时说清楚卡在哪一步、下一步建议，不要假装成功。
 
         当前设备：iOS 27，工作区 \(shell.workspace.lastPathComponent)，可用工具 \(registry.count) 个。
+        \(memory.promptSection())
         """
     }
 

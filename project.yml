@@ -30,6 +30,7 @@ targets:
         excludes:
           - "Widgets/**"
       - path: Shared
+      - path: Support/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: bot.pogent.app
@@ -60,6 +61,11 @@ targets:
         NSHomeKitUsageDescription: pogent 需要访问家庭配件，才能替你控制灯和空调。
         NSAppleMusicUsageDescription: pogent 需要访问 Apple Music，才能替你放歌。
         NSFaceIDUsageDescription: pogent 用 Face ID 确认高风险操作。
+        NSCameraUsageDescription: pogent 需要相机，才能拍照识字、扫码和扫描文档。
+        NSBluetoothAlwaysUsageDescription: pogent 需要蓝牙，才能扫描附近设备、读设备信息。
+        NSSupportsLiveActivities: true
+        NSSupportsLiveActivitiesFrequentUpdates: true
+        ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: pogent 只在你看得到的时候连接局域网里的远程会话。
         NSBonjourServices:
           - _pogent._tcp

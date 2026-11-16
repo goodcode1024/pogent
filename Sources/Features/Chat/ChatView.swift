@@ -10,6 +10,11 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var showVoice = false
     @State private var showSkills = false
+    @State private var showConversations = false
+    @State private var showLibrary = false
+    @State private var planMode = false
+    @State private var pendingPlan: String?
+    @State private var planGoal = ""
     @FocusState private var composerFocused: Bool
 
     private var messages: [ChatMessage] {
@@ -57,7 +62,7 @@ struct ChatView: View {
                     Circle()
                         .fill(app.runtime.isRunning ? PogentTheme.amber : PogentTheme.accent)
                         .frame(width: 5, height: 5)
-                    Text(app.runtime.isRunning ? "正在执行" : "\(app.registry.count) 个工具 · iOS 27")
+                    Text(app.runtime.isRunning ? "正在执行" : "\(app.registry.count) 个工具 · \(app.memory.items.count) 条记忆")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -72,10 +77,16 @@ struct ChatView: View {
                     try? context.save()
                     conversation = new
                 }
+                Button("会话列表", systemImage: "list.bullet.rectangle") {
+                    showConversations = true
+                }
                 Button("存为技能", systemImage: "square.stack.3d.up") {
                     saveSkill()
                 }
-                Button("审批记录", systemImage: "checklist") {}
+                Button("技能与审计", systemImage: "square.stack.3d.up.fill") {
+                    showLibrary = true
+                }
+                Toggle("计划模式", systemImage: "list.clipboard", isOn: $planMode)
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.system(size: 20))
@@ -108,6 +119,21 @@ struct ChatView: View {
                         }
                         RunTimelineView(steps: app.runtime.steps)
                             .padding(.horizontal, 18)
+                    }
+
+                    if let pendingPlan {
+                        PlanCard(
+                            plan: pendingPlan,
+                            onRun: {
+                                let goal = planGoal
+                                self.pendingPlan = nil
+                                Task {
+                                    await app.runtime.submit("\(goal)\n\n按上面的计划执行。", conversation: conversation ?? app.bootstrapConversation(), context: context)
+                                }
+                            },
+                            onCancel: { self.pendingPlan = nil }
+                        )
+                        .padding(.horizontal, 18)
                     }
 
                     if let request = app.approvals.pending.first {
@@ -173,13 +199,14 @@ struct ChatView: View {
             }
 
             VStack(spacing: 10) {
-                suggestion("把明天的牙医预约加到日历，提前一小时提醒", icon: "calendar.badge.plus")
+                suggestion("明早 7 点叫我，然后告诉我今天天气", icon: "alarm")
+                suggestion("记住我不吃香菜，以后推荐餐厅注意", icon: "brain")
                 suggestion("把这个月的账单整理成表格，发给我老婆", icon: "tablecells")
-                suggestion("在外卖 App 里点一份牛肉面，先给我看购物车", icon: "takeoutbag.and.cup.and.straw")
+                suggestion("看一下我刚拍的那张收据，把金额列出来", icon: "doc.viewfinder")
             }
 
             HStack(spacing: 8) {
-                capabilityChip("26 个工具", "square.grid.2x2")
+                capabilityChip("\(app.registry.count) 个工具", "square.grid.2x2")
                 capabilityChip("三级能力路由", "arrow.triangle.branch")
                 capabilityChip("全程可回放", "clock.arrow.circlepath")
             }
@@ -226,12 +253,17 @@ struct ChatView: View {
     private var composer: some View {
         VStack(spacing: 8) {
             HStack(alignment: .bottom, spacing: 10) {
-                Button {
-                    showSkills = true
+                Menu {
+                    Button("语音输入", systemImage: "waveform") { showVoice = true }
+                    Button("技能", systemImage: "square.stack.3d.up") { showSkills = true }
+                    Button("计划模式", systemImage: "list.clipboard") {
+                        planMode.toggle()
+                    }
+                    Button("会话列表", systemImage: "list.bullet.rectangle") { showConversations = true }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: planMode ? "list.clipboard.fill" : "plus")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(planMode ? PogentTheme.amber : .secondary)
                         .frame(width: 34, height: 34)
                         .background(Color.white.opacity(0.06), in: Circle())
                 }
@@ -275,8 +307,19 @@ struct ChatView: View {
             Rectangle().fill(Color.white.opacity(0.06)).frame(height: 0.5)
         }
         .sheet(isPresented: $showVoice) {
-            VoiceSheet()
-                .presentationDetents([.height(220)])
+            QuickVoiceSheet { text in
+                if draft.isEmpty { draft = text } else { draft += " " + text }
+            }
+            .presentationDetents([.height(300)])
+        }
+        .sheet(isPresented: $showConversations) {
+            ConversationListView { conversation in
+                self.conversation = conversation
+                showConversations = false
+            }
+        }
+        .sheet(isPresented: $showLibrary) {
+            NavigationStack { LibraryView() }
         }
         .sheet(isPresented: $showSkills) {
             SkillPicker { text in
@@ -300,6 +343,16 @@ struct ChatView: View {
         guard canSend, let conversation else { return }
         let text = draft
         draft = ""
+
+        if planMode {
+            planGoal = text
+            Task {
+                pendingPlan = await app.runtime.requestPlan(text, conversation: conversation, context: context)
+                planMode = false
+            }
+            return
+        }
+
         Task {
             await app.runtime.submit(text, conversation: conversation, context: context)
         }
@@ -320,6 +373,7 @@ struct ChatView: View {
 // MARK: - 气泡
 
 struct MessageBubble: View {
+    @Environment(AppEnvironment.self) private var app
     let message: ChatMessage
 
     var body: some View {
@@ -359,14 +413,26 @@ struct MessageBubble: View {
                             .foregroundStyle(.tertiary)
                         Spacer()
                         Button {
+                            UIPasteboard.general.string = message.text
                         } label: {
                             Image(systemName: "doc.on.doc").font(.system(size: 10))
+                        }
+                        .foregroundStyle(.tertiary)
+                        Button {
+                            app.synthesizer.speak(message.text)
+                        } label: {
+                            Image(systemName: "speaker.wave.2").font(.system(size: 10))
                         }
                         .foregroundStyle(.tertiary)
                     }
                 }
                 .padding(14)
                 .glassCard(cornerRadius: 18)
+                .contextMenu {
+                    Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
+                    Button("朗读", systemImage: "speaker.wave.2") { app.synthesizer.speak(message.text) }
+                    Button("停止朗读", systemImage: "speaker.slash") { app.synthesizer.stop() }
+                }
 
                 Spacer(minLength: 20)
             }
@@ -375,32 +441,130 @@ struct MessageBubble: View {
     }
 }
 
-// MARK: - 语音
+// MARK: - 计划卡
 
-struct VoiceSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var level: CGFloat = 0.2
+struct PlanCard: View {
+    let plan: String
+    var onRun: () -> Void
+    var onCancel: () -> Void
 
     var body: some View {
-        VStack(spacing: 20) {
-            Capsule().fill(Color.white.opacity(0.2)).frame(width: 36, height: 4).padding(.top, 8)
-            Text("按住说话").font(.system(size: 17, weight: .semibold))
-            Text("松手转成文字发出去。识别用你自己的 Key。")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 5) {
-                ForEach(0..<28, id: \.self) { index in
-                    Capsule()
-                        .fill(PogentTheme.accent.opacity(0.8))
-                        .frame(width: 3, height: 12 + CGFloat(abs(sin(Double(index) * 0.7))) * 40 * level)
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "list.clipboard.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(PogentTheme.amber)
+                Text("计划待确认")
+                    .font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Text("还没有执行任何工具")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
             }
-            .frame(height: 60)
 
-            Button("完成") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .tint(PogentTheme.accent)
+            Text(LocalizedStringKey(plan))
+                .font(.system(size: 13))
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+
+            HStack(spacing: 8) {
+                Button(action: onRun) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "play.fill").font(.system(size: 9, weight: .bold))
+                        Text("开始执行").font(.system(size: 12, weight: .semibold))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(PogentTheme.accent.opacity(0.18), in: Capsule())
+                    .foregroundStyle(PogentTheme.accent)
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onCancel) {
+                    Text("不用了")
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.06), in: Capsule())
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .glassCard(cornerRadius: 18, stroke: PogentTheme.amber.opacity(0.3))
+    }
+}
+
+// MARK: - 语音输入
+
+struct QuickVoiceSheet: View {
+    @Environment(AppEnvironment.self) private var app
+    @Environment(\.dismiss) private var dismiss
+
+    var onResult: (String) -> Void
+
+    @State private var pressing = false
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Capsule().fill(Color.white.opacity(0.2)).frame(width: 36, height: 4).padding(.top, 8)
+
+            Text(app.speech.isRecording ? "松手结束" : "按住说话")
+                .font(.system(size: 15, weight: .semibold))
+
+            ScrollView {
+                Text(app.speech.transcript.isEmpty ? "说的话会出现在这里" : app.speech.transcript)
+                    .font(.system(size: 15))
+                    .foregroundStyle(app.speech.transcript.isEmpty ? .tertiary : .primary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 24)
+            }
+            .frame(maxHeight: 100)
+
+            if let error = app.speech.errorText {
+                Text(error)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PogentTheme.rose)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 20)
+            }
+
+            ZStack {
+                Circle()
+                    .fill(app.speech.isRecording ? PogentTheme.rose.opacity(0.22) : PogentTheme.accent.opacity(0.14))
+                    .frame(width: 78, height: 78)
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(app.speech.isRecording ? PogentTheme.rose : PogentTheme.accent)
+            }
+            .scaleEffect(pressing ? 0.92 : 1)
+            .animation(.spring(response: 0.22), value: pressing)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !pressing else { return }
+                        pressing = true
+                        Presentation.haptic(.rigid)
+                        Task { await app.speech.start() }
+                    }
+                    .onEnded { _ in
+                        guard pressing else { return }
+                        pressing = false
+                        let text = app.speech.stop()
+                        guard !text.isEmpty else { return }
+                        onResult(text)
+                        dismiss()
+                    }
+            )
+
+            Text("识别在本机完成。没网也能用，前提是系统下过中文语音包。")
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(PogentTheme.surface)

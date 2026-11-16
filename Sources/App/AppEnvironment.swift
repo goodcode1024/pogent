@@ -23,6 +23,15 @@ final class AppEnvironment {
     let bots: BotCoordinator
     let scheduler: BotScheduler
 
+    // 本轮补齐的能力
+    let memory: MemoryStore
+    let capabilities: CapabilityCenter
+    let clock: ClockService
+    let locationService: LocationService
+    let speech: SpeechService
+    let synthesizer = SpeechSynthesizer()
+    let connectors: ConnectorService
+
     var modelConfig: ModelConfig {
         didSet { persistConfig() }
     }
@@ -42,6 +51,12 @@ final class AppEnvironment {
         shell = ShellSession(workspace: workspace)
         routines = RoutineStore(workspace: workspace)
         scheduler = BotScheduler(workspace: workspace)
+        memory = MemoryStore(context: container.mainContext)
+        capabilities = CapabilityCenter(context: container.mainContext)
+        clock = ClockService(workspace: workspace)
+        locationService = LocationService()
+        speech = SpeechService()
+        connectors = ConnectorService(context: container.mainContext)
 
         #if DEBUG
         control = DeviceControlService(transport: DemoAutomationTransport())
@@ -59,6 +74,7 @@ final class AppEnvironment {
             ledger: ledger,
             control: control,
             shell: shell,
+            memory: memory,
             modelConfig: config
         )
 
@@ -87,6 +103,29 @@ final class AppEnvironment {
             NotificationTool(),
             ShortcutTool(),
             HomeTool(),
+
+            // 本轮补齐：语音、视觉、设备、时间、位置、天气
+            SpeakTool(synthesizer: synthesizer),
+            TranscribeTool(workspace: shell.workspace),
+            OCRTool(workspace: shell.workspace),
+            ScanCodeTool(workspace: shell.workspace),
+            SeeTool(workspace: shell.workspace),
+            DeviceInfoTool(),
+            BatteryTool(),
+            HardwareTool(),
+            AuthenticateTool(capabilities: capabilities),
+            ClockTool(clock: clock),
+            LocationTool(service: locationService),
+            WeatherTool(location: locationService),
+
+            // 本地工具箱
+            UtilityTool(),
+            FileToolboxTool(workspace: shell.workspace),
+
+            // 记忆、子智能体、连接器
+            MemoryTool(store: memory),
+            SubagentTool(registry: registry, config: { [weak self] in self?.modelConfig ?? .default }),
+            ConnectorTool(service: connectors),
 
             // 本机运行时
             ShellTool(shell: shell),
