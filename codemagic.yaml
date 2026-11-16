@@ -1,0 +1,138 @@
+# Codemagic 构建配置
+# 目标：在 Codemagic 的 macOS 实例上编译 pogent，产出未签名 .ipa（不需要开发者账号/证书）
+#
+# 用法：
+#   1. codemagic.io 用 GitHub 登录 → Add application → 选 goodcode1024/pogent
+#   2. Codemagic 会自动读到本文件的 workflows，选 ios-unsigned-ipa 点 Start new build
+#   3. 构建完成后在 Artifacts 里下载 Pogent-unsigned.ipa
+#
+# 未签名 IPA 不能直接装到设备，需要用 AltStore / Sideloadly / 自己的证书重签。
+
+workflows:
+  ios-unsigned-ipa:
+    name: pogent · iOS unsigned IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      # 用最新 Xcode；下面 "选择 Xcode" 脚本会优先切到带 iOS 27 SDK 的那一个
+      xcode: latest
+      vars:
+        XCODE_PROJECT: Pogent.xcodeproj
+        XCODE_SCHEME: Pogent
+        BUNDLE_ID: bot.pogent.app
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+        - pattern: "v*"
+          include: true
+          source: true
+    scripts:
+      - name: 环境信息
+        script: |
+          set -e
+          sw_vers
+          uname -m
+          echo "--- 已安装的 Xcode ---"
+          ls -d /Applications/Xcode*.app 2>/dev/null || echo "none"
+          echo "--- Swift ---"
+          swift --version || true
+
+      - name: 选择 Xcode（优先 iOS 27 SDK）
+        script: |
+          set -e
+          BEST=""; BEST_V=0; WANT27=""
+          for app in /Applications/Xcode*.app; do
+            [ -d "$app" ] || continue
+            sdkdir="$app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs"
+            [ -d "$sdkdir" ] || continue
+            v=$(ls "$sdkdir" | sed -n 's/^iPhoneOS\([0-9][0-9]*\)\.sdk$/\1/p' | sort -n | tail -1)
+            v=${v:-0}
+            echo "$app -> iOS SDK $v"
+            if [ "$v" -ge 27 ] && [ -z "$WANT27" ]; then WANT27="$app"; fi
+            if [ "$v" -gt "$BEST_V" ]; then BEST_V=$v; BEST="$app"; fi
+          done
+          if [ -n "$WANT27" ]; then
+            PICK="$WANT27"
+            echo "使用带 iOS 27 SDK 的 Xcode：$PICK"
+            echo "SDK_MAJOR=27" >> $CM_ENV
+          else
+            PICK="$BEST"
+            echo "⚠️ 这台机器没有 iOS 27 SDK（最高 iOS $BEST_V），将把部署目标临时压到 $BEST_V.0 以产出可运行包"
+            echo "SDK_MAJOR=$BEST_V" >> $CM_ENV
+          fi
+          echo "DEVELOPER_DIR=$PICK/Contents/Developer" >> $CM_ENV
+          echo "PICKED_XCODE=$PICK" >> $CM_ENV
+
+      - name: 校验工具链
+        script: |
+          set -e
+          xcodebuild -version
+          xcodebuild -showsdks | sed -n '1,40p'
+
+      - name: 安装 XcodeGen
+        script: |
+          set -e
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            brew install xcodegen
+          fi
+
+      - name: 生成 Xcode 工程
+        script: |
+          set -e
+          xcodegen generate --spec project.yml
+          ls -la "$XCODE_PROJECT"
+
+      - name: 编译（关闭代码签名）
+        script: |
+          set -e
+          OVERRIDE=""
+          if [ "${SDK_MAJOR:-27}" -lt 27 ]; then
+            OVERRIDE="IPHONEOS_DEPLOYMENT_TARGET=${SDK_MAJOR}.0"
+            echo "部署目标降级：$OVERRIDE"
+          fi
+          set -x
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM="" \
+            ENABLE_BITCODE=NO \
+            $OVERRIDE \
+            build
+
+      - name: 打包未签名 IPA
+        script: |
+          set -e
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          if [ -z "$APP" ]; then echo "没找到 .app 产物"; exit 1; fi
+          echo "APP=$APP"
+          rm -rf Payload build/ios/ipa
+          mkdir -p Payload build/ios/ipa
+          cp -R "$APP" Payload/
+          rm -rf Payload/*.app/_CodeSignature Payload/*.app/embedded.mobileprovision || true
+          zip -qry build/ios/ipa/Pogent-unsigned.ipa Payload
+          ls -lh build/ios/ipa/Pogent-unsigned.ipa
+          unzip -l build/ios/ipa/Pogent-unsigned.ipa | head -20
+          plutil -p "Payload/$(basename "$APP")/Info.plist" | grep -E "CFBundleIdentifier|MinimumOSVersion|CFBundleShortVersionString" || true
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - /Users/builder/clone/build.log

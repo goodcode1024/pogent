@@ -18,7 +18,8 @@ permissions:
 jobs:
   build:
     name: iOS unsigned .ipa
-    runs-on: macos-26
+    # macos-26 在部分账号上排不到机器，用 macos-latest 更稳（SDK 版本由下面的脚本自适应）
+    runs-on: macos-latest
     timeout-minutes: 45
 
     steps:
