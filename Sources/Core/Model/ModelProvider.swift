@@ -279,7 +279,7 @@ final class ModelRouter {
         )
         var answer = ""
         do {
-            for await delta in onDevice.stream(request) {
+            for try await delta in onDevice.stream(request) {
                 if case .text(let chunk) = delta { answer += chunk }
             }
         } catch {

@@ -204,8 +204,10 @@ final class DeviceControlService {
         lastSnapshot = snapshot
         currentApp = snapshot.appName
 
-        let diff = previous.map { diff(old: $0, new: snapshot) }
-        lastDiff = diff
+        let screenDiff: ScreenDiff? = previous.map { (old: ScreenSnapshot) in
+            self.diff(old: old, new: snapshot)
+        }
+        lastDiff = screenDiff
 
         if finish { try? await restoreOrigin() }
         return (snapshot, diff)
