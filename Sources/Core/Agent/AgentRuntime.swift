@@ -134,6 +134,7 @@ final class AgentRuntime {
 
             let provider = router.provider(for: request, config: modelConfig)
             var assistantText = ""
+            var reasoningText = ""
             var toolCalls: [ToolInvocation] = []
             var usage = 0
 
@@ -143,6 +144,9 @@ final class AgentRuntime {
                 case .text(let chunk):
                     assistantText += chunk
                     streamingText = assistantText
+                case .reasoning(let chunk):
+                    // 思考内容不进气泡，只留在这轮上下文里回传给模型
+                    reasoningText += chunk
                 case .toolCalls(let calls):
                     toolCalls.append(contentsOf: calls)
                 case .usage(let input, let output):
@@ -162,7 +166,13 @@ final class AgentRuntime {
 
             guard !toolCalls.isEmpty else { return }
 
-            messages.append(ModelMessage(role: .assistant, text: assistantText, toolCalls: toolCalls))
+            let echo = reasoningText.isEmpty ? nil : reasoningText
+            messages.append(ModelMessage(
+                role: .assistant,
+                text: assistantText,
+                toolCalls: toolCalls,
+                reasoningContent: modelConfig.shouldEchoReasoning ? echo : nil
+            ))
 
             for call in toolCalls {
                 try Task.checkCancellation()

@@ -87,6 +87,20 @@ struct SettingsView: View {
                     }
                     .font(.system(size: 11, weight: .semibold))
                 }
+
+                Toggle(isOn: Binding(
+                    get: { app.modelConfig.shouldEchoReasoning },
+                    set: { app.modelConfig.echoReasoning = $0 }
+                )) {
+                    Label("回传思考内容", systemImage: "brain")
+                        .font(.system(size: 12))
+                }
+                .tint(PogentTheme.accent)
+
+                Text("思考模型（DeepSeek V3.2、GLM、Kimi 等）工具调用后必须把 reasoning_content 原样带回，关掉会报 HTTP 400。普通模型遇到这个字段报错时再关。")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Text("端侧模型负责分类、摘要和风险预判；复杂规划交给你的大模型。屏幕内容只在需要时才发出去。")

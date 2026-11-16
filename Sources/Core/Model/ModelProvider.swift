@@ -11,6 +11,8 @@ struct ModelMessage: Sendable {
     var toolCalls: [ToolInvocation] = []
     var toolCallID: String?
     var toolName: String?
+    /// 思考模型的推理内容。工具调用链里必须原样回传，否则部分厂商会 400。
+    var reasoningContent: String?
 }
 
 struct ModelRequest: Sendable {
@@ -23,6 +25,8 @@ struct ModelRequest: Sendable {
 
 enum ModelDelta: Sendable {
     case text(String)
+    /// 思考过程。界面默认不展示，但要留在这一轮的消息里回传给模型。
+    case reasoning(String)
     case toolCalls([ToolInvocation])
     case usage(input: Int, output: Int)
     case finished(reason: String?)
@@ -106,8 +110,14 @@ struct ModelConfig: Codable, Sendable {
     var maxTokens: Int = 4096
     /// 语音转写 / 朗读用的模型（可选）。
     var voiceModel: String = ""
+    /// 是否把思考内容回传给模型。思考模型必需；个别严格的普通模型会拒绝这个字段。
+    /// 用可选类型是为了兼容旧版本存下来的配置（没有这个键也能解码）。
+    var echoReasoning: Bool?
 
     static let `default` = ModelConfig()
+
+    /// 默认开启：绝大多数 400 都是因为没回传 reasoning_content。
+    var shouldEchoReasoning: Bool { echoReasoning ?? true }
 }
 
 final class OpenAICompatibleProvider: ModelProvider, @unchecked Sendable {
@@ -178,6 +188,9 @@ final class OpenAICompatibleProvider: ModelProvider, @unchecked Sendable {
                               let choice = choices.first else { continue }
 
                         if let delta = choice["delta"] as? [String: Any] {
+                            if let thinking = delta["reasoning_content"] as? String, !thinking.isEmpty {
+                                continuation.yield(.reasoning(thinking))
+                            }
                             if let text = delta["content"] as? String, !text.isEmpty {
                                 continuation.yield(.text(text))
                             }
@@ -245,6 +258,13 @@ final class OpenAICompatibleProvider: ModelProvider, @unchecked Sendable {
                     ]
                 ]
             }
+        }
+        // 思考模型（DeepSeek V3.2 / GLM / Kimi 等）要求把上一轮 assistant 的
+        // reasoning_content 原样带回来，否则 HTTP 400。普通模型没有这个字段就跳过。
+        if message.role == .assistant,
+           let thinking = message.reasoningContent?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !thinking.isEmpty {
+            dictionary["reasoning_content"] = thinking
         }
         return dictionary
     }
