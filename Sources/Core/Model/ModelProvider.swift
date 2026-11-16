@@ -278,8 +278,12 @@ final class ModelRouter {
             tools: []
         )
         var answer = ""
-        for await delta in onDevice.stream(request) {
-            if case .text(let chunk) = delta { answer += chunk }
+        do {
+            for await delta in onDevice.stream(request) {
+                if case .text(let chunk) = delta { answer += chunk }
+            }
+        } catch {
+            return .sensitive
         }
         let lowered = answer.lowercased()
         if lowered.contains("financial") { return .financial }

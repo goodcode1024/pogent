@@ -85,10 +85,6 @@ enum JSONValue: Codable, Hashable, Sendable {
         .object(Dictionary(uniqueKeysWithValues: pairs))
     }
 
-    static func object(_ dictionary: [String: JSONValue]) -> JSONValue {
-        .object(dictionary)
-    }
-
     var prettyPrinted: String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]

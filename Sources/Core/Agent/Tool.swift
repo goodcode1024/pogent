@@ -172,7 +172,9 @@ protocol AgentTool: AnyObject {
 
 // MARK: - 便捷构造
 
-extension ToolDefinition {
+// 参数 schema 的便捷构造。挂在 JSONValue 上，因为调用点是
+// `parameters: .jsonSchema(...)`，上下文类型就是 JSONValue。
+extension JSONValue {
     static func jsonSchema(
         properties: [String: JSONValue],
         required: [String] = []
