@@ -241,12 +241,14 @@ final class MessageTool: AgentTool {
     var definition: ToolDefinition {
         ToolDefinition(
             name: "compose_message",
-            summary: "写好一条短信/iMessage 并打开信息 App，发送键留给你按。",
+            summary: "写好一条短信、邮件或拨号盘，发送键留给你按。channel=sms/mail/tel。",
             surface: .native,
             risk: .sensitive,
             parameters: .jsonSchema(properties: [
-                "to": .stringParam("收件人手机号或姓名"),
-                "body": .stringParam("正文")
+                "to": .stringParam("收件人手机号、邮箱或姓名"),
+                "body": .stringParam("正文"),
+                "channel": .stringParam("sms | mail | tel，默认 sms"),
+                "subject": .stringParam("邮件主题（mail 时用）")
             ], required: ["to", "body"]),
             requiresForeground: true
         )
@@ -256,9 +258,11 @@ final class MessageTool: AgentTool {
         guard let to = arguments["to"]?.stringValue, let body = arguments["body"]?.stringValue else {
             throw ToolError.badInput("需要 to 和 body")
         }
+        let channel = arguments["channel"]?.stringValue ?? "sms"
         let request = ApprovalRequest(
             runID: context.runID, toolName: "compose_message",
-            title: "确认发送消息", detail: "给 \(to)：\(body.prefix(80))",
+            title: channel == "mail" ? "确认发邮件" : (channel == "tel" ? "确认拨号" : "确认发送消息"),
+            detail: "给 \(to)：\(body.prefix(80))",
             risk: .sensitive, kind: .message
         )
         switch await context.requestApproval(request) {
@@ -272,13 +276,30 @@ final class MessageTool: AgentTool {
             return .needsHuman("请本人发送", kind: "message")
         }
 
-        guard let encodedBody = body.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let encodedTo = to.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: "sms:\(encodedTo)&body=\(encodedBody)") else {
-            throw ToolError.badInput("号码无法编码")
+        let allowed = CharacterSet.urlQueryAllowed
+        guard let encodedTo = to.addingPercentEncoding(withAllowedCharacters: allowed),
+              let encodedBody = body.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            throw ToolError.badInput("地址无法编码")
         }
+
+        let urlString: String
+        let resultText: String
+        switch channel {
+        case "mail":
+            let subject = (arguments["subject"]?.stringValue ?? "来自 pogent").addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+            urlString = "mailto:\(encodedTo)?subject=\(subject)&body=\(encodedBody)"
+            resultText = "已打开邮件 App，收件人和正文都填好了，等你按发送"
+        case "tel":
+            urlString = "tel:\(encodedTo)"
+            resultText = "已打开拨号盘，号码是 \(to)"
+        default:
+            urlString = "sms:\(encodedTo)&body=\(encodedBody)"
+            resultText = "已打开信息 App，正文已填好，等你按发送"
+        }
+
+        guard let url = URL(string: urlString) else { throw ToolError.badInput("地址无法编码") }
         _ = await UIApplication.shared.open(url)
-        return .ok("已打开信息 App，正文已填好，等你按发送")
+        return .ok(resultText)
     }
 }
 
