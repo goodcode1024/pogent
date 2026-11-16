@@ -111,7 +111,7 @@ final class ConnectorTool: AgentTool {
             guard let webhook = service.first(.webhook) else {
                 throw ToolError.unavailable("还没有 Webhook 连接器")
             }
-            guard let urlString = arguments["url"]?.stringValue ?? Optional(service.config(for: webhook)["url"]),
+            guard let urlString = arguments["url"]?.stringValue ?? service.config(for: webhook)["url"],
                   let url = URL(string: urlString) else {
                 throw ToolError.badInput("缺少 webhook 地址")
             }
@@ -140,7 +140,7 @@ final class ConnectorTool: AgentTool {
                 throw ToolError.unavailable("还没有连接 Notion")
             }
             guard let database = arguments["database"]?.stringValue
-                    ?? Optional(service.config(for: notion)["database"]), !database.isEmpty else {
+                    ?? service.config(for: notion)["database"], !database.isEmpty else {
                 throw ToolError.badInput("缺少 database id")
             }
             var request = URLRequest(url: URL(string: "https://api.notion.com/v1/databases/\(database)/query")!)

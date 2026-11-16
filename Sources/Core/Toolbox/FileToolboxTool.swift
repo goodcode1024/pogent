@@ -92,7 +92,7 @@ final class FileToolboxTool: AgentTool {
             guard let document = PDFDocument(url: workspace.appendingPathComponent(path)) else {
                 throw ToolError.badInput("打不开 \(path)")
             }
-            let page = Int(arguments["page"]?.numberValue ?? 0)
+            let page = Int(arguments["page"]?.doubleValue ?? 0)
             guard let source = document.page(at: page) else { throw ToolError.badInput("没有第 \(page) 页") }
             let output = arguments["output"]?.stringValue ?? "第\(page)页.pdf"
             let single = PDFDocument()
@@ -106,7 +106,7 @@ final class FileToolboxTool: AgentTool {
             guard let text = arguments["text"]?.stringValue, !text.isEmpty else {
                 throw ToolError.badInput("缺少 text")
             }
-            let scale = max(arguments["scale"]?.numberValue ?? 10, 1)
+            let scale = max(arguments["scale"]?.doubleValue ?? 10, 1)
             let output = arguments["output"]?.stringValue ?? "qr-\(Int(Date().timeIntervalSince1970)).png"
             let url = try QRCode.write(text, scale: CGFloat(scale), to: workspace.appendingPathComponent(output))
             return .ok("二维码已保存：\(url.lastPathComponent)", payload: .object(["path": .string(url.lastPathComponent)]))
@@ -119,8 +119,8 @@ final class FileToolboxTool: AgentTool {
             }
             let output = arguments["output"]?.stringValue
                 ?? (source.deletingPathExtension().lastPathComponent + "-out.jpg")
-            let width = arguments["width"]?.numberValue
-            let quality = arguments["quality"]?.numberValue ?? 0.85
+            let width = arguments["width"]?.doubleValue
+            let quality = arguments["quality"]?.doubleValue ?? 0.85
             let filter = arguments["filter"]?.stringValue
 
             var processed = image

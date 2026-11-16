@@ -107,7 +107,11 @@ struct CapabilityView: View {
     }
 
     private var modelIcon: String {
-        modelColor == PogentTheme.violet ? "cpu" : (modelColor == PogentTheme.accent ? "cloud.fill" : "bolt.slash.fill")
+        if app.modelConfig.kind == .openAICompatible {
+            let key = KeychainStore.apiKey(for: app.modelConfig.kind.rawValue) ?? ""
+            return key.isEmpty ? "bolt.slash.fill" : "cloud.fill"
+        }
+        return SystemLanguageModel.default.availability == .available ? "cpu" : "bolt.slash.fill"
     }
 
     // MARK: 能力开关

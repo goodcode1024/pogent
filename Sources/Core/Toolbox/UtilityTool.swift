@@ -46,7 +46,7 @@ final class UtilityTool: AgentTool {
             return .ok("\(expression) = \(Calculator.format(value))", payload: .object(["value": .number(value)]))
 
         case "convert":
-            let value = arguments["value"]?.numberValue ?? 0
+            let value = arguments["value"]?.doubleValue ?? 0
             let from = arguments["from"]?.stringValue ?? ""
             let to = arguments["to"]?.stringValue ?? ""
             let result = try UnitConverter.convert(value, from: from, to: to)
@@ -113,9 +113,9 @@ final class UtilityTool: AgentTool {
             return .ok(output, payload: .object(["result": .string(output)]))
 
         case "random":
-            let count = min(max(Int(arguments["count"]?.numberValue ?? 1), 1), 50)
-            let min = Int(arguments["min"]?.numberValue ?? 1)
-            let max = Int(arguments["max"]?.numberValue ?? 100)
+            let count = min(max(Int(arguments["count"]?.doubleValue ?? 1), 1), 50)
+            let min = Int(arguments["min"]?.doubleValue ?? 1)
+            let max = Int(arguments["max"]?.doubleValue ?? 100)
             guard min <= max else { throw ToolError.badInput("min 不能大于 max") }
             let values = (0..<count).map { _ in Int.random(in: min...max) }
             return .ok(values.map(String.init).joined(separator: ", "))
@@ -137,7 +137,7 @@ final class UtilityTool: AgentTool {
             else { throw ToolError.badInput("看不懂这个日期：\(raw)") }
         }
 
-        if let days = arguments["days"]?.numberValue {
+        if let days = arguments["days"]?.doubleValue {
             base = Calendar.current.date(byAdding: .day, value: Int(days), to: base) ?? base
         }
 

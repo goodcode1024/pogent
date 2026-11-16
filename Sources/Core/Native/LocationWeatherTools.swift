@@ -161,7 +161,7 @@ final class ClockTool: AgentTool {
             return .ok("闹钟已设：\(formatter.string(from: date)) \(title)")
 
         case "timer":
-            let minutes = arguments["minutes"]?.numberValue ?? 25
+            let minutes = arguments["minutes"]?.doubleValue ?? 25
             let label = arguments["title"]?.stringValue ?? "倒计时"
             try await clock.startTimer(minutes: minutes, label: label)
             return .ok("倒计时 \(Int(minutes)) 分钟已开始：\(label)")
@@ -387,7 +387,7 @@ final class WeatherTool: AgentTool {
     }
 
     func call(_ arguments: JSONValue, context: ToolContext) async throws -> ToolOutcome {
-        let days = min(max(Int(arguments["days"]?.numberValue ?? 3), 1), 7)
+        let days = min(max(Int(arguments["days"]?.doubleValue ?? 3), 1), 7)
         var latitude: Double
         var longitude: Double
 

@@ -90,7 +90,7 @@ final class DeviceInfoTool: AgentTool {
         系统：\(device.systemName) \(device.systemVersion)
         屏幕：\(Int(screen.bounds.width))×\(Int(screen.bounds.height)) @\(Int(screen.scale))x，亮度 \(Int(screen.brightness * 100))%
         存储：已用 \(Self.gb(storage.used)) / 共 \(Self.gb(storage.total))
-        内存：\(Self.gb(memory))
+        内存：\(Self.gb(Int64(memory)))
         电池：\(battery)，\(charging)
         网络：\(NetworkMonitor.shared.summary)
         语言：\(Locale.preferredLanguages.prefix(2).joined(separator: ", "))
@@ -239,7 +239,7 @@ final class HardwareTool: AgentTool {
             return .ok("手电筒已\(on ? "打开" : "关闭")")
 
         case "brightness":
-            let value = min(max(arguments["value"]?.numberValue ?? 0.5, 0), 1)
+            let value = min(max(arguments["value"]?.doubleValue ?? 0.5, 0), 1)
             UIScreen.main.brightness = CGFloat(value)
             return .ok("屏幕亮度调到 \(Int(value * 100))%")
 

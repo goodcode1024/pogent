@@ -171,7 +171,7 @@ final class CapabilityCenter {
                 HKQuantityType(.bodyMass), HKCategoryType(.sleepAnalysis)
             ]
             let share: Set<HKSampleType> = [HKQuantityType(.bodyMass), HKWorkoutType.workoutType()]
-            return (try? await store.requestAuthorization(toShare: share, read: read)) ?? false
+            return (try? await store.requestAuthorization(toShare: share, read: read)) != nil
         case .photos:
             let status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
             return status == .authorized || status == .limited

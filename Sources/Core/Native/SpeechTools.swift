@@ -176,7 +176,7 @@ final class SpeakTool: AgentTool {
         guard let text = arguments["text"]?.stringValue, !text.isEmpty else {
             throw ToolError.badInput("缺少 text")
         }
-        if let rate = arguments["rate"]?.numberValue {
+        if let rate = arguments["rate"]?.doubleValue {
             synthesizer.rate = Float(min(max(rate, 0.3), 0.7))
         }
         synthesizer.speak(text)
