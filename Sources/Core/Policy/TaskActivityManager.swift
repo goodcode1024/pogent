@@ -1,5 +1,5 @@
 import Foundation
-import ActivityKit
+@preconcurrency import ActivityKit
 
 /// 灵动岛 / 锁屏上的任务状态。审批也能在这里点。
 @MainActor

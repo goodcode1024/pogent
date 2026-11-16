@@ -49,7 +49,8 @@ final class AppEnvironment {
         control = DeviceControlService(transport: SystemAutomationTransport())
         #endif
 
-        modelConfig = Self.loadConfig()
+        let config = Self.loadConfig()
+        modelConfig = config
         hasCompletedOnboarding = UserDefaults.standard.bool(forKey: "pogent.onboarded")
 
         runtime = AgentRuntime(
@@ -58,7 +59,7 @@ final class AppEnvironment {
             ledger: ledger,
             control: control,
             shell: shell,
-            modelConfig: modelConfig
+            modelConfig: config
         )
 
         bots = BotCoordinator(context: container.mainContext, runtime: runtime)

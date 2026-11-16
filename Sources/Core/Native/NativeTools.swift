@@ -1,5 +1,5 @@
 import Foundation
-import EventKit
+@preconcurrency import EventKit
 import Contacts
 
 // MARK: - 权限
